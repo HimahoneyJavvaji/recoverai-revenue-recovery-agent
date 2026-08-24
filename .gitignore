@@ -237,3 +237,12 @@ frontend/dist/
 
 # Logs
 *.log
+
+# RecoverAI local data
+data/*.db
+data/*.db-journal
+data/*.sqlite
+data/*.sqlite3
+
+# Generated datasets and local evaluation artifacts
+data/generated/
