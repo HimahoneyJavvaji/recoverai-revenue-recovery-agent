@@ -11,22 +11,28 @@ from backend.app.models import (
 )
 
 
-def utc_now() -> datetime:
-    """Return the current timezone-aware UTC datetime."""
-    return datetime.now(timezone.utc)
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def run_smoke_test() -> None:
     db = SessionLocal()
+
+    # Make every smoke-test run use unique business identifiers.
+    run_id = utcnow().strftime("%Y%m%d%H%M%S%f")
+
+    invoice_number = f"SMOKE-{run_id}"
+    failed_reference = f"smoke-failed-{run_id}"
+    success_reference = f"smoke-success-{run_id}"
 
     try:
         # ---------------------------------------------------------
         # 1. Create customer
         # ---------------------------------------------------------
         customer = Customer(
-            name="Smoke Test Customer",
-            email="smoke@example.com",
-            phone="+910000000000",
+            name=f"Smoke Test Customer {run_id}",
+            email=f"smoke-{run_id}@example.com",
+            phone=f"+910000{run_id[-6:]}",
             segment="SMB",
         )
 
@@ -35,16 +41,13 @@ def run_smoke_test() -> None:
 
         # ---------------------------------------------------------
         # 2. Create overdue invoice
-        #
-        # Money is stored in integer paise.
-        # ₹10,000.00 = 1,000,000 paise
         # ---------------------------------------------------------
         invoice = Invoice(
             customer_id=customer.id,
-            invoice_number="SMOKE-001",
-            amount=1_000_000,
+            invoice_number=invoice_number,
+            amount=1_000_000,              # ₹10,000 = 1,000,000 paise
             outstanding_amount=1_000_000,
-            due_date=utc_now().date() - timedelta(days=5),
+            due_date=utcnow().date() - timedelta(days=5),
             status="OVERDUE",
         )
 
@@ -56,10 +59,10 @@ def run_smoke_test() -> None:
         # ---------------------------------------------------------
         failed_payment = Payment(
             invoice_id=invoice.id,
-            amount=1_000_000,
-            payment_date=utc_now(),
+            amount=10_000,                 # ₹100 = 10,000 paise
+            payment_date=utcnow(),
             status="FAILED",
-            reference="smoke-failed-001",
+            reference=failed_reference,
         )
 
         db.add(failed_payment)
@@ -89,7 +92,7 @@ def run_smoke_test() -> None:
             reason="Previous payment failed and invoice is overdue.",
             status="EXECUTED",
             attempt_number=1,
-            executed_at=utc_now(),
+            executed_at=utcnow(),
             result="Payment link sent successfully.",
             recovered_amount=0,
         )
@@ -102,17 +105,16 @@ def run_smoke_test() -> None:
         # ---------------------------------------------------------
         successful_payment = Payment(
             invoice_id=invoice.id,
-            amount=1_000_000,
-            payment_date=utc_now(),
+            amount=1_000_000,              # ₹10,000 = 1,000,000 paise
+            payment_date=utcnow(),
             status="SUCCESS",
-            reference="smoke-success-001",
+            reference=success_reference,
         )
 
         db.add(successful_payment)
         db.flush()
 
-        # A recovery action is only considered financially successful
-        # when a SUCCESS payment proves the recovered amount.
+        # Link recovery action to successful payment.
         action.payment_id = successful_payment.id
         action.recovered_amount = successful_payment.amount
 
@@ -140,9 +142,9 @@ def run_smoke_test() -> None:
             ),
             event_metadata={
                 "payment_id": successful_payment.id,
-                "amount_paise": successful_payment.amount,
+                "amount": successful_payment.amount,
             },
-            timestamp=utc_now(),
+            timestamp=utcnow(),
         )
 
         db.add(audit_event)
@@ -160,7 +162,7 @@ def run_smoke_test() -> None:
         print(f"Recovery Case ID:     {recovery_case.id}")
         print(f"Recovery Action ID:   {action.id}")
         print(f"Success Payment ID:   {successful_payment.id}")
-        print(f"Recovered Amount:     ₹{successful_payment.amount / 100:,.2f}")
+        print(f"Recovered Amount:     ₹{successful_payment.amount / 100:.2f}")
         print(f"Invoice Status:       {invoice.status}")
         print(f"Case Status:          {recovery_case.status}")
         print(f"Verified Payment ID:  {action.payment_id}")
